@@ -1,4 +1,6 @@
 const authRouter=require('express').Router();
+
+
 const auth=require("../../../utils/auth");
 const signup=require("../../../controllers/auth/signUp");
 const onBoard=require("../../../controllers/auth/onBoard");

@@ -1,176 +1,170 @@
-const User = require('../../models/User'); // Check your path
-const Job = require('../../models/job');   // Check your path
+const User = require('../../models/User'); // Updated path: go up two levels
+const Job = require('../../models/Job');   // Updated path: go up two levels
 
 /**
- * 🛎️ PART 1: THE "WAITER" (Now waits for the food)
- * --- THIS IS THE UPDATED PART ---
+ * 🛎️ PART 1: THE "WAITER" (Waits for the AI to finish)
+ * Handles the incoming request, creates a job ticket, and waits for completion.
  */
 const generateContent = async (req, res) => {
+  let jobId = null;
   try {
     const { prompt } = req.body;
-    const userId = req.user.id; // Get user from auth middleware
 
-    // 1. Check for basic info
+    // 1. Authentication & Validation
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
     if (!prompt) {
       return res.status(400).json({ message: 'Prompt is required' });
     }
+
+    const userId = req.user.id;
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    if (!user.onboardingCompleted) {
-      return res.status(400).json({ message: 'Please complete onboarding first' });
-    }
 
-    // 2. Create the "Job Ticket"
+    console.log(`[Log 1] User ${userId} requested content for: "${prompt.substring(0, 30)}..."`);
+
+    // 2. Create the "Job Ticket" in Database
     const job = new Job({
       userId: userId,
-      platforms: user.selectedPlatforms || ['email', 'blog'],
+      // Use user's preferred platforms or default to all four
+      platforms: user.selectedPlatforms && user.selectedPlatforms.length > 0 
+        ? user.selectedPlatforms 
+        : ['email', 'blog', 'twitter', 'linkedin'],
       originalContent: prompt,
-      status: 'processing' // Start as processing
+      status: 'processing'
     });
     await job.save();
+    jobId = job._id;
 
-    // 3. Tell the "Kitchen" to start cooking... AND WAIT!
-    //    We added "await" here. This means this function will
-    //    pause for 5-10 seconds until the AI is finished.
-    await processContentBackground(job._id, prompt, user);
+    console.log(`[Log 2] Job ${jobId} created. Sending to AI Kitchen...`);
 
-    // 4. Get the finished job from the database
-    //    (The "kitchen" function updated it)
-    const finishedJob = await Job.findById(job._id);
+    // 3. Send to "Kitchen" and AWAIT it (so we don't send response until done)
+    // In a larger app, you might not await this and instead use webhooks/polling.
+    await processContentBackground(jobId, prompt, user);
 
-    // 5. Give the user the FULL job (with all the content)
-    //    Now the user gets the content in the very first response.
-    res.json({
+    console.log(`[Log 3] Job ${jobId} finished processing. Fetching result...`);
+
+    // 4. Fetch the completed job
+    const finishedJob = await Job.findById(jobId);
+    if (!finishedJob) {
+      throw new Error('Job Disappeared from database after processing.');
+    }
+
+    // 5. Return success to client
+    res.status(200).json({
       success: true,
       message: 'Content generated successfully!',
-      job: finishedJob // <-- Send the whole job back
+      job: finishedJob
     });
 
   } catch (error) {
-    console.error(error);
-    // If the AI fails, the "kitchen" will update the job.
-    // Let's find that job to send the error message.
-    const failedJob = await Job.findOne({ userId: req.user.id }).sort({ createdAt: -1 });
-    res.status(500).json({ 
-      message: 'Server Error or AI Failed', 
-      error: error.message,
-      job: failedJob // Send the job with the error status
+    console.error(`[CATCH BLOCK] Error in generateContent for Job ${jobId}:`, error.message);
+
+    // Attempt to fail the job in DB if it exists
+    if (jobId) {
+       await Job.findByIdAndUpdate(jobId, { 
+         status: 'failed', 
+         error: error.message 
+       }).catch(e => console.error("Failed to update job status to failed:", e));
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Content generation failed.',
+      error: error.message
     });
   }
 };
 
 /**
- * 👨‍🍳 PART 2: THE "KITCHEN" (Does the slow work)
- * This function is PERFECT. No changes needed.
- * It uses JSON Mode and is very reliable.
+ * 👨‍🍳 PART 2: THE "KITCHEN" (Interacts with AI APIs)
+ * 1. Calls Gemini for text.
+ * 2. Generates an Image URL based on the prompt.
+ * 3. Updates the Job ticket.
  */
 const processContentBackground = async (jobId, prompt, user) => {
   try {
-// 1. Build the detailed instructions for the Gemini AI
+    // --- A. PREPARE GEMINI PROMPT ---
     const fullPrompt = `
-      You are an expert content creator...
-      Company Name: ${user.companyName}
-      Industry: ${user.industry}
-      Brand Voice: ${user.brandVoice?.tone || 'professional'}
-      
-      Generate content for these platforms: ${user.selectedPlatforms?.join(', ')}
-      Based on this user prompt:
-      ${prompt}
-      
-      You MUST return *ONLY* a valid JSON object.
-      The keys of the object MUST EXACTLY MATCH the platform names requested.
-      Do not change the platform names (e.g., use "blog", not "blog_post").
-      
-      Example format:
+      You are an expert content marketing AI for a company named "${user.companyName || 'Our Company'}" in the "${user.industry || 'General'}" industry.
+      Brand Tone: ${user.brandVoice || 'professional'}
+      TASK: Generate marketing content based on this prompt: "${prompt}"
+      OUTPUT REQUIREMENTS:
+      You MUST return ONLY a raw JSON object. Do not include markdown formatting (like \`\`\`json ... \`\`\`).
+      The JSON object must have exactly these keys: "twitter", "linkedin", "email", "blog".
+      FORMAT:
       {
-        "twitter": ["tweet 1", "tweet 2"],
-        "linkedin": ["professional post content"],
-        "email": {"subject": "Email Subject", "body": "Email body content"},
-        "blog": {"title": "Blog Title", "content": "Blog post content"}
+        "twitter": "Write a short, engaging tweet (max 280 chars) with hashtags.",
+        "linkedin": "Write a professional LinkedIn post (3-5 sentences).",
+        "email": { "subject": "Email Subject Line", "body": "Email Body Content" },
+        "blog": "Write a one-paragraph blog post summary or intro."
       }
     `;
 
-    // 2. Call the Gemini AI (with JSON Mode)
-    const response = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+    // --- B. CALL GEMINI FOR TEXT ---
+    console.log(`[Kitchen] Calling Gemini for Job ${jobId}...`);
+    const textResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': process.env.GEMINI_API_KEY
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: {
-            responseMimeType: "application/json"
-          }
+          generationConfig: { responseMimeType: "application/json" }
         })
       }
     );
 
-    const data = await response.json();
-    if (!data.candidates || !data.candidates.length) {
-      throw new Error('Failed to generate content from Gemini (no candidates)');
+    if (!textResponse.ok) {
+      const errText = await textResponse.text();
+      throw new Error(`Gemini API Failed: ${textResponse.status} - ${errText}`);
     }
 
-    const generatedText = data.candidates[0].content.parts[0].text;
+    const textData = await textResponse.json();
+    if (!textData.candidates || !textData.candidates[0].content) {
+       throw new Error("Gemini returned an empty response.");
+    }
+
+    // Parse the JSON text from Gemini
+    const rawText = textData.candidates[0].content.parts[0].text;
+    const cleanedJsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+    let generatedContent = JSON.parse(cleanedJsonText);
+
+    // --- C. GENERATE IMAGE BASED ON PROMPT ---
+    // We use the user's prompt + industry to create a specific image URL.
+    // Pollinations.ai generates a real image on-the-fly when this URL is loaded by the frontend.
+    console.log(`[Kitchen] creating image URL for Job ${jobId}...`);
     
-    let generatedContent;
-    try {
-      generatedContent = JSON.parse(generatedText);
-    } catch (parseError) {
-      console.error("JSON parsing failed (even in JSON mode):", parseError, "Text was:", generatedText);
-      throw new Error('AI returned invalid JSON.');
-    }
+    const imagePrompt = `professional, modern marketing image for ${user.industry || 'business'} industry, related to: ${prompt}, vibrant colors, high quality, 4k, no text`;
+    const encodedPrompt = encodeURIComponent(imagePrompt);
+    const randomSeed = Math.floor(Math.random() * 9999); // Ensures fresh image if prompt is repeated
+    
+    // This URL *is* the image. No need to wait for it to generate here.
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?seed=${randomSeed}&width=1280&height=720&nologo=true&model=flux`;
 
-    // 4. Update the "Job Ticket" with the finished content
+    // Add image to content object
+    generatedContent.imageUrl = imageUrl;
+
+    // --- D. SAVE SUCCESS TO DB ---
     await Job.findByIdAndUpdate(jobId, {
       status: 'completed',
       generatedContent: generatedContent,
       completedAt: new Date()
     });
 
-    console.log(`Job ${jobId} completed successfully`);
+    console.log(`[Kitchen] Job ${jobId} completed successfully with Text + Image.`);
 
   } catch (error) {
-    console.error(`Job ${jobId} failed:`, error);
-    // 5. If it fails, update the ticket with an error
-    await Job.findByIdAndUpdate(jobId, {
-      status: 'failed',
-      error: error.message
-    });
-    // This 'throw' is important! It tells "generateContent" that something failed.
-    throw error; 
+    console.error(`[Kitchen FAILED] Job ${jobId} error:`, error.message);
+    // Re-throw so the 'Waiter' knows it failed
+    throw error;
   }
 };
 
-/**
- * 🕵️‍♂️ PART 3: THE "CHECKUP" (Lets the user check their ticket)
- * We don't need this function for the "simple" way,
- * but it's good to keep for later!
- */
-const getJobStatus = async (req, res) => {
-  try {
-    const { jobId } = req.params;
-    const userId = req.user.id;
-    const job = await Job.findOne({ _id: jobId, userId: userId });
-    
-    if (!job) {
-      return res.status(404).json({ message: 'Job not found' });
-    }
-    res.json({
-      success: true,
-      job: job // Send the full job object
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-// Export all our functions
 module.exports = {
   generateContent,
-  getJobStatus // You can still keep this route if you want
+  // processContentBackground is internal, but we can export it if needed for testing
 };
