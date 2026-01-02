@@ -2,23 +2,41 @@ import React from "react";
 import logo from "/logo.png";
 import Navbar from "./Navbar";
 import ThemeToggle from "./ThemeToggle";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 function Header() {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const isHomePage = location.pathname === "/homepage";
+
+  // 🔴 LOGOUT HANDLER
+  const handleLogout = async () => {
+    try {
+      await fetch("http://localhost:5000/api/auth/logout", {
+        method: "POST",
+        credentials: "include", // 🔥 REQUIRED for cookies
+      });
+
+      // Optional: clear any client state
+      localStorage.clear();
+      sessionStorage.clear();
+
+      // Redirect to login
+      navigate("/");
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
 
   return (
     <header className="relative w-full bg-white dark:bg-slate-950 dark:text-white">
 
-      {/* Top Bar (for homepage/dashboard) */}
+      {/* Top Bar (Homepage / Dashboard) */}
       {isHomePage && (
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-slate-800">
-           
-          <div>
-            
-          </div>
+          
+          <div></div>
 
           {/* Right: Theme + User */}
           <div className="flex items-center gap-4">
@@ -30,7 +48,10 @@ function Header() {
                 U
               </div>
 
-              <button className="text-sm px-3 py-1 rounded-md border border-gray-300 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-900 transition">
+              <button
+                onClick={handleLogout}
+                className="text-sm px-3 py-1 rounded-md border border-gray-300 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-900 transition"
+              >
                 Logout
               </button>
             </div>
@@ -67,7 +88,7 @@ function Header() {
             </p>
 
             {/* CTA */}
-            <Link to="/homepage">
+            <Link to="/login">
               <button className="px-6 py-2.5 rounded-md bg-blue-500 text-white font-medium hover:bg-blue-600 transition">
                 Get Started
               </button>

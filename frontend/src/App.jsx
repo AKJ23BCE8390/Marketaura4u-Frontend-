@@ -6,6 +6,8 @@ import './App.css'
 
 import LandingPage from './pages/LandingPage';
 import HomePage from './pages/HomePage';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
 
 function App() {
   return(
@@ -13,6 +15,8 @@ function App() {
     <Routes>
       <Route path='/' element={<LandingPage/>}/>
       <Route path='/homepage' element={<HomePage/>}/>
+      <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
     </Routes>
   </BrowserRouter>
   )
