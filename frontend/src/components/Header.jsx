@@ -10,19 +10,21 @@ function Header() {
 
   const isHomePage = location.pathname === "/homepage";
 
+  // Get user initial safely
+  const user = JSON.parse(localStorage.getItem("user"));
+  const userInitial = user?.email?.[0]?.toUpperCase() || "U";
+
   // 🔴 LOGOUT HANDLER
   const handleLogout = async () => {
     try {
-      await fetch("http://localhost:5000/api/auth/logout", {
+      await fetch("http://localhost:5000/api/v1/auth/logout", {
         method: "POST",
-        credentials: "include", // 🔥 REQUIRED for cookies
+        credentials: "include",
       });
 
-      // Optional: clear any client state
       localStorage.clear();
       sessionStorage.clear();
 
-      // Redirect to login
       navigate("/");
     } catch (error) {
       console.error("Logout failed:", error);
@@ -32,25 +34,45 @@ function Header() {
   return (
     <header className="relative w-full bg-white dark:bg-slate-950 dark:text-white">
 
-      {/* Top Bar (Homepage / Dashboard) */}
+      {/* ================= DASHBOARD HEADER ================= */}
       {isHomePage && (
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-slate-800">
           
+          {/* Left (empty for spacing / future breadcrumb) */}
           <div></div>
 
-          {/* Right: Theme + User */}
+          {/* Right: Theme + Profile */}
           <div className="flex items-center gap-4">
             <ThemeToggle />
 
-            {/* User Profile */}
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-semibold">
-                U
-              </div>
+              
+              {/* PROFILE LINK */}
+              <Link to="/profile" title="View Profile">
+                <div
+                  className="
+                    h-8 w-8 rounded-full 
+                    bg-blue-500 text-white 
+                    flex items-center justify-center 
+                    text-sm font-semibold 
+                    cursor-pointer 
+                    hover:bg-blue-600 
+                    transition
+                  "
+                >
+                  {userInitial}
+                </div>
+              </Link>
 
+              {/* LOGOUT */}
               <button
                 onClick={handleLogout}
-                className="text-sm px-3 py-1 rounded-md border border-gray-300 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-900 transition"
+                className="
+                  text-sm px-3 py-1 rounded-md 
+                  border border-gray-300 dark:border-slate-700 
+                  hover:bg-gray-100 dark:hover:bg-slate-900 
+                  transition
+                "
               >
                 Logout
               </button>
@@ -59,7 +81,7 @@ function Header() {
         </div>
       )}
 
-      {/* Landing Page Hero */}
+      {/* ================= LANDING PAGE HEADER ================= */}
       {!isHomePage && (
         <>
           {/* Theme Toggle */}

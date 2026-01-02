@@ -1,6 +1,7 @@
 import React from "react";
 
 import ContentPage from "./ContentPage";
+import Campaigns from "./Campaigns";
 
 function HomeContent({ active }) {
   return (
@@ -15,12 +16,7 @@ function HomeContent({ active }) {
       )}
 
       {active === "campaigns" && (
-        <div>
-          <h2 className="text-xl font-bold mb-4">Campaigns</h2>
-          <p className="text-gray-600 dark:text-gray-400">
-            Manage and launch your AI campaigns here.
-          </p>
-        </div>
+        <Campaigns/>
       )}
 
       {active === "content" && (
