@@ -38,14 +38,17 @@ const Onboarding = () => {
   const [formData, setFormData] = useState({
     companyName: "",
     industry: "",
-    targetAudience: "",
     brandTone: "Professional",
     uvp: "",
+    targetAudience: "",
+    platform: ""
   });
   const [platforms, setPlatforms] = useState([]);
   const [platformIds, setPlatformIds] = useState({}); // New State for Platform IDs
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [platformStatus, setPlatformStatus] = useState({});
+
 
   /* ---------------- Helpers ---------------- */
 
@@ -101,22 +104,55 @@ const Onboarding = () => {
     setStep(1);
   };
 
+  const handleValidatePlatform = async (platformId) => {
+  try {
+    setPlatformStatus(prev => ({
+      ...prev,
+      [platformId]: "loading"
+    }));
+
+    if (platformId === "twitter") {
+      // Redirect to Twitter OAuth (backend handles rest)
+      window.location.href ="http://localhost:5000/api/v1/platform/twitter/connect";
+
+      return;
+    }
+
+    // Placeholder for other platforms
+    setTimeout(() => {
+      setPlatformStatus(prev => ({
+        ...prev,
+        [platformId]: "validated"
+      }));
+    }, 1000);
+
+  } catch (err) {
+    setPlatformStatus(prev => ({
+      ...prev,
+      [platformId]: "error"
+    }));
+  }
+};
+
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Validation 1: At least one platform selected
+
     if (platforms.length === 0) {
       setErrors({ platforms: "Please select at least one platform." });
       return;
     }
 
-    // Validation 2: All selected platforms must have an ID filled in
-    const emptyIds = platforms.filter(p => !platformIds[p] || !platformIds[p].trim());
+    const emptyIds = platforms.filter(
+      (p) => !platformIds[p] || !platformIds[p].trim()
+    );
+
     if (emptyIds.length > 0) {
-       // Get readable names of missing platforms
-       const missingNames = emptyIds.map(id => PLATFORMS_CONFIG.find(p => p.id === id)?.label).join(", ");
-       setErrors({ platforms: `Please enter details for: ${missingNames}` });
-       return;
+      const missingNames = emptyIds
+        .map(id => PLATFORMS_CONFIG.find(p => p.id === id)?.label)
+        .join(", ");
+      setErrors({ platforms: `Please enter details for: ${missingNames}` });
+      return;
     }
 
     try {
@@ -124,22 +160,37 @@ const Onboarding = () => {
       setErrors({});
 
       const payload = {
-        companyName: formData.companyName.trim(),
-        industry: formData.industry.trim(),
-        targetAudience: formData.targetAudience.trim(),
-        brandTone: formData.brandTone,
-        uvp: formData.uvp.trim(),
-        platforms: platforms,
-        platformIds: platformIds // New Field Sent to Backend
+        brandProfile: {
+          companyName: formData.companyName.trim(),
+          industry: formData.industry.trim(),
+          uvp: formData.uvp.trim(),
+          platforms,
+          targetAudience: formData.targetAudience.trim(),
+          brandVoice: {
+            tone: formData.brandTone,
+            description: ""
+          }
+        },
+        platformIds
       };
 
-      // --- ORIGINAL API CALL ---
-      const res = await fetch("http://localhost:5000/api/v1/auth/onboarding", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      if (platforms.some(p => platformStatus[p] !== "validated")) {
+  setErrors({
+    platforms: "Please validate all selected platforms"
+  });
+  return;
+}
+
+
+      const res = await fetch(
+        "http://localhost:5000/api/v1/auth/onboarding",
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }
+      );
 
       const data = await res.json();
 
@@ -149,10 +200,9 @@ const Onboarding = () => {
 
       localStorage.setItem("user", JSON.stringify(data.data));
       navigate("/homepage");
-      // ----------------------------------
 
     } catch (err) {
-      setErrors({ server: err.message || "Something went wrong. Please try again." });
+      setErrors({ server: err.message || "Something went wrong." });
     } finally {
       setLoading(false);
     }
@@ -374,13 +424,33 @@ const Onboarding = () => {
                               <div className="absolute left-4 top-3.5 text-slate-400">
                                 <platform.icon className="h-5 w-5" />
                               </div>
-                              <input
-                                type="text"
-                                placeholder={platform.placeholder}
-                                value={platformIds[pId] || ""}
-                                onChange={(e) => handlePlatformIdChange(pId, e.target.value)}
-                                className="w-full pl-12 pr-4 py-3 bg-white dark:bg-slate-950 text-slate-900 dark:text-white placeholder:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all duration-200 shadow-sm"
-                              />
+                              <div className="flex gap-2">
+  <input
+    type="text"
+    placeholder={platform.placeholder}
+    value={platformIds[pId] || ""}
+    onChange={(e) => handlePlatformIdChange(pId, e.target.value)}
+    className="flex-1 pl-12 pr-4 py-3 bg-white dark:bg-slate-950 text-slate-900 dark:text-white placeholder:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all duration-200 shadow-sm"
+  />
+
+  <button
+    type="button"
+    onClick={() => handleValidatePlatform(pId)}
+    disabled={platformStatus[pId] === "loading"}
+    className={`px-4 rounded-xl text-sm font-semibold transition-all ${
+      platformStatus[pId] === "validated"
+        ? "bg-green-500 text-white"
+        : platformStatus[pId] === "error"
+        ? "bg-red-500 text-white"
+        : "bg-indigo-600 text-white hover:bg-indigo-700"
+    }`}
+  >
+    {platformStatus[pId] === "loading" && "Checking…"}
+    {platformStatus[pId] === "validated" && "✓ Valid"}
+    {platformStatus[pId] === "error" && "Retry"}
+    {!platformStatus[pId] && "Validate"}
+  </button>
+</div>
                             </div>
                           </div>
                         );
